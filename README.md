@@ -23,7 +23,7 @@ Keyboard: `n` new order, `Enter` edit the selected order, `Esc` clear focus, `Al
 
 1. **Stacks → Add stack → Repository.**
 2. Repository URL: `https://github.com/wunderslug/dispatch-app`, compose path `docker-compose.yml`. If the repo is private, turn on authentication and use a GitHub personal access token.
-3. Deploy, then open `http://<server>:8080`.
+3. Deploy, then open `http://<server>:32799`.
 
 ### Docker Compose on the host
 

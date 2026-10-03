@@ -5,7 +5,7 @@ services:
     container_name: dispatch
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "32799:8080"
     environment:
       # Optional. Nominatim asks for a contact email on geocoding requests.
       GEOCODE_EMAIL: ""
