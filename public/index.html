@@ -1,0 +1,151 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Truck Dispatch</title>
+  <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23f5b700'/><path d='M5 20V10h13v10M18 14h5l4 4v2H18' fill='none' stroke='%231c2128' stroke-width='2.5' stroke-linejoin='round'/><circle cx='10' cy='22' r='2.5' fill='%231c2128'/><circle cx='23' cy='22' r='2.5' fill='%231c2128'/></svg>">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span id="companyName">Dispatch</span>
+    </div>
+    <div class="datenav">
+      <button class="btn ghost" id="prevDay" title="Previous day">&larr;</button>
+      <input type="date" id="dateInput">
+      <button class="btn ghost" id="nextDay" title="Next day">&rarr;</button>
+      <button class="btn ghost" id="todayBtn">Today</button>
+    </div>
+    <div class="dayStats" id="dayStats"></div>
+    <div class="actions">
+      <button class="btn primary" id="newOrderBtn">+ Order</button>
+      <button class="btn" id="trucksBtn">Trucks</button>
+      <button class="btn" id="settingsBtn">Settings</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="board" id="board" aria-label="Dispatch board"></section>
+    <div class="splitter" id="splitter" title="Drag to resize"></div>
+    <section class="mapPane">
+      <div id="map"></div>
+      <div class="mapLegend" id="mapLegend"></div>
+      <div class="mapHint hidden" id="mapHint">Click the map to drop the pin. <button class="btn small" id="cancelPick">Cancel</button></div>
+    </section>
+  </main>
+
+  <!-- Order editor -->
+  <dialog id="orderDialog">
+    <form method="dialog" id="orderForm" class="dlg">
+      <header><h2 id="orderTitle">New order</h2><button type="button" class="x" data-close>&times;</button></header>
+      <div class="grid2">
+        <label>Customer<input name="customer" required autocomplete="off"></label>
+        <label>Order / ticket #<input name="orderNo" autocomplete="off"></label>
+        <label>Phone<input name="phone" autocomplete="off"></label>
+        <label>Delivery date<input name="date" type="date" required></label>
+      </div>
+      <label>Delivery address
+        <div class="addrRow">
+          <input name="address" id="addrInput" autocomplete="off" placeholder="123 Main St, Putnam, CT">
+          <button type="button" class="btn" id="addrSearch">Find</button>
+          <button type="button" class="btn" id="addrPick" title="Click on the map instead">Pin on map</button>
+        </div>
+      </label>
+      <div class="geoResults" id="geoResults"></div>
+      <div class="geoStatus" id="geoStatus"></div>
+      <input type="hidden" name="lat"><input type="hidden" name="lng">
+      <div class="grid4">
+        <label>Weight (lb)<input name="weight" type="number" min="0" step="1"></label>
+        <label>Longest item (ft)<input name="length" type="number" min="0" step="0.5"></label>
+        <label>Window from<input name="windowStart" type="time"></label>
+        <label>Window to<input name="windowEnd" type="time"></label>
+      </div>
+      <div class="checks">
+        <label class="chk"><input type="checkbox" name="needsBoom"> Needs boom (roof/second-floor drop)</label>
+        <label class="chk"><input type="checkbox" name="needsForklift"> Needs Moffett / forklift</label>
+      </div>
+      <label>Materials<textarea name="materials" rows="2" placeholder="e.g. 40 sheets 1/2&quot; CDX, 24 2x10x16, 12 sq shingles"></textarea></label>
+      <label>Notes for driver<textarea name="notes" rows="2" placeholder="Gate code, where to drop, call ahead…"></textarea></label>
+      <div class="grid2">
+        <label>Status
+          <select name="status">
+            <option value="open">Open</option>
+            <option value="loaded">Loaded</option>
+            <option value="delivered">Delivered</option>
+          </select>
+        </label>
+        <label>Truck
+          <select name="truckId" id="orderTruckSel"></select>
+        </label>
+      </div>
+      <footer>
+        <button type="button" class="btn danger" id="deleteOrder">Delete</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save order</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <!-- Trucks -->
+  <dialog id="trucksDialog">
+    <div class="dlg wide">
+      <header><h2>Trucks</h2><button type="button" class="x" data-close>&times;</button></header>
+      <p class="muted">Set limits per truck so the board can flag loads that won't fit. Weight is payload in pounds; length is the longest material the deck can carry.</p>
+      <div class="truckTableWrap">
+        <table class="truckTable">
+          <thead><tr><th></th><th>Name</th><th>Type</th><th>Driver</th><th>Max lb</th><th>Max ft</th><th>Boom</th><th>Moffett</th><th>On board</th><th></th></tr></thead>
+          <tbody id="truckRows"></tbody>
+        </table>
+      </div>
+      <footer>
+        <button type="button" class="btn" id="addTruck">+ Add truck</button>
+        <span class="spacer"></span>
+        <button type="button" class="btn primary" data-close>Done</button>
+      </footer>
+    </div>
+  </dialog>
+
+  <!-- Settings -->
+  <dialog id="settingsDialog">
+    <form method="dialog" class="dlg" id="settingsForm">
+      <header><h2>Settings</h2><button type="button" class="x" data-close>&times;</button></header>
+      <label>Company name<input name="companyName"></label>
+      <label>Yard address (where trucks leave from and return to)
+        <div class="addrRow">
+          <input name="yardAddress" id="yardInput" autocomplete="off">
+          <button type="button" class="btn" id="yardSearch">Find</button>
+          <button type="button" class="btn" id="yardPick">Pin on map</button>
+        </div>
+      </label>
+      <div class="geoResults" id="yardResults"></div>
+      <div class="geoStatus" id="yardStatus"></div>
+      <input type="hidden" name="yardLat"><input type="hidden" name="yardLng">
+      <hr>
+      <h3>Day tools</h3>
+      <div class="rowBtns">
+        <button type="button" class="btn" id="rollOver">Move today's undelivered orders to next day</button>
+      </div>
+      <h3>Backup</h3>
+      <div class="rowBtns">
+        <a class="btn" href="api/export" download>Download backup</a>
+        <label class="btn fileBtn">Restore from backup<input type="file" id="importFile" accept="application/json"></label>
+      </div>
+      <footer>
+        <span class="spacer"></span>
+        <button type="button" class="btn" data-close>Cancel</button>
+        <button type="submit" class="btn primary">Save</button>
+      </footer>
+    </form>
+  </dialog>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="vendor/leaflet/leaflet.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

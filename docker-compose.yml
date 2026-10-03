@@ -1,0 +1,22 @@
+services:
+  dispatch:
+    build: .
+    image: dispatch-app:latest
+    container_name: dispatch
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Optional. Nominatim asks for a contact email on geocoding requests.
+      GEOCODE_EMAIL: ""
+      # Limit address search to these countries (comma-separated ISO codes).
+      GEOCODE_COUNTRIES: "us"
+      # Point these at your own instances if you self-host geocoding/routing later.
+      # NOMINATIM_URL: "https://nominatim.openstreetmap.org"
+      # OSRM_URL: "https://router.project-osrm.org"
+      # TILE_URL: "https://tile.openstreetmap.org/{z}/{x}/{y}.png"
+    volumes:
+      - dispatch-data:/data
+
+volumes:
+  dispatch-data:
