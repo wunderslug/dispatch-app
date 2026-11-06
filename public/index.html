@@ -2,15 +2,18 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#E2E4E0">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Dispatch">
   <title>Dispatch</title>
   <link rel="stylesheet" href="vendor/leaflet/leaflet.css">
   <link rel="stylesheet" href="styles.css">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23f5b700'/><path d='M5 20V10h13v10M18 14h5l4 4v2H18' fill='none' stroke='%231c2128' stroke-width='2.5' stroke-linejoin='round'/><circle cx='10' cy='22' r='2.5' fill='%231c2128'/><circle cx='23' cy='22' r='2.5' fill='%231c2128'/></svg>">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='7' fill='%23F5DF1E'/><path d='M5 20V10h13v10M18 14h5l4 4v2H18' fill='none' stroke='%2316261F' stroke-width='2.5' stroke-linejoin='round'/><circle cx='10' cy='22' r='2.5' fill='%2316261F'/><circle cx='23' cy='22' r='2.5' fill='%2316261F'/></svg>">
 </head>
 <body>
   <header class="topbar">
-    <div class="brand"><span class="logo" aria-hidden="true"></span><span id="companyName">Dispatch</span></div>
+    <div class="brand"><span class="stamp"><b>DISPATCH</b><small id="companyName">Dispatch</small></span></div>
     <div class="datenav">
       <button class="btn ghost" id="prevDay" title="Previous day (Alt+←)">&larr;</button>
       <input type="date" id="dateInput">
@@ -29,6 +32,8 @@
   </header>
 
   <div class="planBar hidden" id="planBar"></div>
+
+  <nav class="truckTabs" id="truckTabs" aria-label="Jump to truck"></nav>
 
   <main class="board" id="board" aria-label="Dispatch board"></main>
 

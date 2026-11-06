@@ -17,7 +17,7 @@ services:
       # Point these at your own instances if you self-host geocoding/routing later.
       # NOMINATIM_URL: "https://nominatim.openstreetmap.org"
       # OSRM_URL: "https://router.project-osrm.org"
-      # TILE_URL: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
+      # TILE_URL: "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png"
     volumes:
       - dispatch-data:/data
 

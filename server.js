@@ -16,7 +16,7 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const NOMINATIM_URL = (process.env.NOMINATIM_URL || 'https://nominatim.openstreetmap.org').replace(/\/$/, '');
 const OSRM_URL = (process.env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
 const GEOCODE_EMAIL = process.env.GEOCODE_EMAIL || '';
-const TILE_URL = process.env.TILE_URL || 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+const TILE_URL = process.env.TILE_URL || 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
 const ENV_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // ------------------------------------------------------------------ storage

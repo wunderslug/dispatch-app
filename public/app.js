@@ -75,7 +75,10 @@ const SHAPES = [
   '<path d="M6 0.5 11.5 6 6 11.5 0.5 6z"/>',
   '<path d="M1 2h10v2H1zM1 5h10v2H1zM1 8h10v2H1z"/>',
 ];
-const UNASSIGNED_COLOR = '#6B6258';
+const UNASSIGNED_COLOR = '#56635B';
+// phones and tablets: a tap opens the order (no double-click on touch), and the board snaps one truck per screen
+const TOUCH = matchMedia('(hover: none) and (pointer: coarse)').matches;
+const PHONE = () => matchMedia('(max-width: 700px)').matches;
 const sortedTrucks = () => [...S.trucks].sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
 const truckById = (id) => S.trucks.find((t) => t.id === id);
 const truckIndex = (t) => sortedTrucks().findIndex((x) => x.id === t.id);
@@ -221,7 +224,33 @@ function renderBoard() {
     $('[data-first]', board).onclick = openTrucks;
   }
   board.scrollLeft = scroll;
+  renderTruckTabs();
   for (const c of $$('.col', board)) { const b = $('.colBody', c); if (b) b.scrollTop = colScroll[c.dataset.truck] || 0; }
+}
+
+// phone: a strip of truck chips above the board; tap one to swipe straight to that column
+function renderTruckTabs() {
+  const nav = $('#truckTabs');
+  const board = $('#board');
+  const cols = $$('.col', board);
+  nav.innerHTML = '';
+  cols.forEach((col, i) => {
+    const t = col.dataset.truck ? truckById(col.dataset.truck) : null;
+    const n = $$('.card', col).length;
+    const b = h(`<button type="button"><i>${n}</i>${esc(t ? t.name : 'Unassigned')}</button>`);
+    b.style.setProperty('--tc', t ? t.color : UNASSIGNED_COLOR);
+    b.onclick = () => board.scrollTo({ left: col.offsetLeft - parseFloat(getComputedStyle(board).paddingLeft), behavior: 'smooth' });
+    nav.appendChild(b);
+  });
+  const mark = () => {
+    const x = board.scrollLeft + board.clientWidth / 3;
+    let on = 0;
+    cols.forEach((c, i) => { if (c.offsetLeft <= x) on = i; });
+    $$('button', nav).forEach((b, i) => b.classList.toggle('on', i === on));
+    $$('button', nav)[on]?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+  };
+  board.onscroll = () => { cancelAnimationFrame(board._tabRaf); board._tabRaf = requestAnimationFrame(mark); };
+  mark();
 }
 
 function renderColumn({ truck, trips }) {
@@ -311,7 +340,7 @@ function renderCard(o, truck, stopNo, legMin) {
   const req = iss.req;
   const items = (o.lines || []).filter((l, i) => !req.lines[i]?.ignore).length;
   const win = o.windowStart || o.windowEnd ? `${fmtTime(o.windowStart) || '…'}–${fmtTime(o.windowEnd) || '…'}` : '';
-  const c = h(`<div class="card${o.assign === 'proposed' && truck ? ' proposed' : ''}${S.selected === o.id ? ' sel' : ''}${o.status === 'delivered' ? ' delivered' : ''}" draggable="true"></div>`);
+  const c = h(`<div class="card${o.assign === 'proposed' && truck ? ' proposed' : ''}${S.selected === o.id ? ' sel' : ''}${o.status === 'delivered' ? ' delivered' : ''}" draggable="${TOUCH ? 'false' : 'true'}"></div>`);
   c.dataset.id = o.id;
   c.style.setProperty('--tc', truck ? truck.color : UNASSIGNED_COLOR);
   const unplacedWhy = !truck && o.planReason;
@@ -337,21 +366,24 @@ function renderCard(o, truck, stopNo, legMin) {
       ${iss.hard.map((t) => `<div class="warn">${esc(t)}</div>`).join('')}
       ${iss.soft.map((w) => `<div class="warn soft">${esc(w.text)}${w.kind === 'unknown' ? '<button class="btn small" data-teach>Translate</button>' : ''}</div>`).join('')}
     </div>` : ''}`;
-  c.title = 'Click to select · double-click to open';
+  c.title = TOUCH ? '' : 'Click to select · double-click to open';
   $('[data-tix]', c)?.addEventListener('click', (e) => { e.stopPropagation(); viewTicket(o.imageIds[0]); });
   $('[data-teach]', c)?.addEventListener('click', (e) => { e.stopPropagation(); const u = req.unknown[0]; openTeach({ line: u }); });
   c.addEventListener('dragstart', (e) => { S.dragging = o.id; e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', o.id); requestAnimationFrame(() => c.classList.add('dragging')); });
   c.addEventListener('dragend', () => { S.dragging = null; c.classList.remove('dragging'); $$('.dropZone.over').forEach((z) => z.classList.remove('over')); });
-  c.addEventListener('click', () => selectOrder(o.id));
-  c.addEventListener('dblclick', () => openOrder(o.id));
+  if (TOUCH) c.addEventListener('click', () => { selectOrder(o.id, true); openOrder(o.id); });
+  else {
+    c.addEventListener('click', () => selectOrder(o.id));
+    c.addEventListener('dblclick', () => openOrder(o.id));
+  }
   return c;
 }
 
-function selectOrder(id) {
+function selectOrder(id, quiet) {
   S.selected = id;
   $$('.card').forEach((c) => c.classList.toggle('sel', c.dataset.id === id));
   const o = S.orders.find((x) => x.id === id);
-  if (o && hasGeo(o) && markers.has(id)) { map.setView([o.lat, o.lng], Math.max(map.getZoom(), 12)); markers.get(id).openPopup(); }
+  if (!quiet && o && hasGeo(o) && markers.has(id)) { map.setView([o.lat, o.lng], Math.max(map.getZoom(), 12)); markers.get(id).openPopup(); }
 }
 
 // ================================================================ moving orders
@@ -418,7 +450,7 @@ let map, layer, markers = new Map(), pickCallback = null, fitDone = false;
 
 function initMap() {
   map = L.map('map', { zoomControl: true, attributionControl: true }).setView([41.85, -71.95], 10);
-  const tiles = S.config.tileUrl || 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png';
+  const tiles = S.config.tileUrl || 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
   L.tileLayer(tiles, { maxZoom: 19, subdomains: 'abcd', attribution: '&copy; OpenStreetMap &copy; CARTO' }).addTo(map);
   layer = L.layerGroup().addTo(map);
   map.on('click', (e) => { if (!pickCallback) return; const cb = pickCallback; endPick(); cb(e.latlng); });
@@ -471,7 +503,7 @@ function renderMap(fit = false) {
         const label = trip.n > 1 ? `${trip.n}·${i + 1}` : String(i + 1);
         const warn = Shared.truckProblems(t, reqOf(o)).length > 0;
         const m = L.marker([o.lat, o.lng], { icon: pinIcon(label, t.color, warn), opacity: dim ? 0.3 : 1, zIndexOffset: dim ? -500 : 0 })
-          .bindPopup(`<b>${esc(o.customer || '')}</b> ${o.orderNo ? `#${esc(o.orderNo)}` : ''}<br>${esc(o.address || '')}<br><span style="color:var(--t3)">${esc(t.name)} · trip ${trip.n} · stop ${i + 1}</span><div style="margin-top:6px"><button class="btn small" data-edit>Open order</button></div>`)
+          .bindPopup(`<b>${esc(o.customer || '')}</b> ${o.orderNo ? `#${esc(o.orderNo)}` : ''}<br>${esc(o.address || '')}<br><span style="color:var(--ink-soft)">${esc(t.name)} · trip ${trip.n} · stop ${i + 1}</span><div style="margin-top:6px"><button class="btn small" data-edit>Open order</button></div>`)
           .addTo(layer);
         m.on('popupopen', (e) => { const b = e.popup.getElement().querySelector('[data-edit]'); if (b) b.onclick = () => openOrder(o.id); });
         markers.set(o.id, m);
@@ -542,7 +574,7 @@ function orderEditor(host, draft) {
         <label>Longest item (ft)<input type="number" min="0" step="0.5" data-ov="lengthFt" placeholder="Auto"></label>
       </div>
       <div class="tableWrap" style="max-height:none">
-        <table class="lines"><thead><tr><th>Qty</th><th>UOM</th><th>SKU</th><th>Description</th><th>Ft</th><th>Means</th><th title="Not freight">Skip</th><th></th></tr></thead><tbody data-lines></tbody></table>
+        <div class="linesWrap"><table class="lines"><thead><tr><th>Qty</th><th>UOM</th><th>SKU</th><th>Description</th><th>Ft</th><th>Means</th><th title="Not freight">Skip</th><th></th></tr></thead><tbody data-lines></tbody></table></div>
       </div>
       <div><button type="button" class="btn small" data-addline>+ Add line</button></div>
       <label>Dispatcher notes<textarea rows="2" data-f="notes" placeholder="Anything the driver should know"></textarea></label>
