@@ -1,7 +1,7 @@
 services:
   dispatch:
-    build: .
-    image: dispatch-app:latest
+    image: ghcr.io/wunderslug/dispatch-app:latest
+    # to build from this folder instead, replace the line above with:  build: .
     container_name: dispatch
     restart: unless-stopped
     ports:
