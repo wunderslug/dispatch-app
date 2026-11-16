@@ -25,6 +25,7 @@
       <button class="btn primary" id="importBtn">Import tickets</button>
       <button class="btn secondary" id="planBtn" title="Let the app propose loads for every truck">Auto-plan day</button>
       <button class="btn" id="newOrderBtn" title="New order (n)">+ Order</button>
+      <button class="btn" id="callsBtn" title="Call reminders">Calls <span class="count hidden" id="callsCount"></span></button>
       <button class="btn" id="lingoBtn">Translator <span class="count hidden" id="lingoCount"></span></button>
       <button class="btn" id="trucksBtn">Trucks</button>
       <button class="btn" id="settingsBtn">Settings</button>
@@ -36,6 +37,12 @@
   <nav class="truckTabs" id="truckTabs" aria-label="Jump to truck"></nav>
 
   <main class="board" id="board" aria-label="Dispatch board"></main>
+
+  <!-- call reminders -->
+  <aside class="callsPanel" id="callsPanel" aria-label="Call reminders">
+    <header class="cpHead"><b>Calls</b><span class="muted small" id="callsSub"></span><button type="button" class="x" id="callsClose" title="Close">&times;</button></header>
+    <div class="cpBody" id="callsList"></div>
+  </aside>
 
   <!-- corner map -->
   <section class="miniMap" id="miniMap">

@@ -106,6 +106,12 @@ function cleanOrder(input, o = {}) {
   o = { ...o };
   for (const k of ['customer', 'orderNo', 'phone', 'address', 'notes', 'instructions', 'windowStart', 'windowEnd', 'planReason']) if (k in input) o[k] = str(input[k]);
   if ('date' in input && /^\d{4}-\d{2}-\d{2}$/.test(input.date)) o.date = input.date;
+  if ('call' in input) {
+    const c = input.call;
+    o.call = c && Shared.CALL_KINDS[c.when]
+      ? { when: c.when, note: str(c.note).slice(0, 200), phone: str(c.phone).slice(0, 30), done: bool(c.done), doneAt: bool(c.done) ? (c.doneAt || new Date().toISOString()) : null }
+      : null;
+  }
   if ('lat' in input) o.lat = num(input.lat);
   if ('lng' in input) o.lng = num(input.lng);
   if ('status' in input) o.status = STATUSES.includes(input.status) ? input.status : 'open';
@@ -273,7 +279,14 @@ async function api(req, res, url) {
   if (resource === 'state' && method === 'GET') {
     const date = url.searchParams.get('date');
     const orders = date ? db.orders.filter((o) => o.date === date) : db.orders;
-    return send(res, 200, { settings: publicSettings(), trucks: db.trucks, orders, lingo: db.lingo });
+    // "call the day before" reminders for the next day's orders show up on this day
+    let callsTomorrow = [];
+    if (date) {
+      const d = new Date(date + 'T12:00:00Z'); d.setUTCDate(d.getUTCDate() + 1);
+      const next = d.toISOString().slice(0, 10);
+      callsTomorrow = db.orders.filter((o) => o.date === next && o.call?.when === 'day-before');
+    }
+    return send(res, 200, { settings: publicSettings(), trucks: db.trucks, orders, lingo: db.lingo, callsTomorrow });
   }
 
   if (resource === 'settings' && method === 'PUT') {

@@ -550,6 +550,7 @@ async function readTicket(buf, mediaType, { knownSkus } = {}) {
         const geo = long > 3000 ? ['-resize', '3000x3000>'] : long < 1600 ? ['-resize', '2200x2200<'] : [];
         if (geo.length || (orient && !/TopLeft|Undefined/i.test(orient))) {
           // only re-save when needed (rotation tag or size); keep color — Tesseract does its own thresholding
+          // reading through the red channel makes red pen (the dispatcher's marks and notes) vanish, black print stays
           await run(im.conv[0], [...im.conv.slice(1), src + '[0]', '-auto-orient', ...geo, base]);
           imgW = Number((await run(im.ident[0], [...im.ident.slice(1), '-format', '%w', base])).trim()) || imgW;
           variants[0] = base;
@@ -561,6 +562,15 @@ async function readTicket(buf, mediaType, { knownSkus } = {}) {
         variants.push(lat);
         scales.push(1.5);
       } catch {}
+      // a read through the red channel only: the dispatcher's red pen (picker marks, notes) disappears, black print stays
+      if (process.env.DISPATCH_KEEP_RED !== '1') {
+        const nored = path.join(dir, 'nored.pgm');
+        try {
+          await run(im.conv[0], [...im.conv.slice(1), variants[0] + (variants[0] === src ? '[0]' : ''), '-auto-orient', '-channel', 'R', '-separate', '+channel', nored]);
+          variants.push(nored);
+          scales.push(1);
+        } catch {}
+      }
     }
     const parses = [];
     let rawText = '';

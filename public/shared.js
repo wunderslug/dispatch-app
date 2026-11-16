@@ -66,6 +66,43 @@
     return null;
   }
 
+  // ------------------------------------------------------------------ call reminders
+
+  const CALL_KINDS = {
+    'before-leave': 'Call before leaving yard',
+    enroute: 'Call when en route',
+    ahead: 'Call ahead',
+    arrival: 'Call on arrival',
+    'day-before': 'Call the day before',
+    other: 'Call',
+  };
+
+  /** Spot "call before leaving yard", "call when enroute", "call ahead"… in ticket text. */
+  function detectCall(text) {
+    const t = String(text || '').toUpperCase().replace(/\s+/g, ' ');
+    if (!/\b(CALL|PHONE|TEXT|CONTACT)\b/.test(t)) return null;
+    const PH = /\(?\d{3}\)?[\s.\-]?\d{3}[\s.\-]\d{4}/;
+    const seg = (t.match(/[^/.;]*\b(CALL|PHONE|TEXT|CONTACT)\b[^/;]*/) || [t])[0].trim();
+    const phone = (seg.match(PH) || [''])[0];
+    let when = null;
+    if (/(DAY|NIGHT) BEFORE/.test(seg)) when = 'day-before';
+    else if (/\b(B4|BEFORE|PRIOR( TO)?)\b.*\b(LEAV|LEFT|DEPART|HEAD(ING)? OUT|PULL(ING)? OUT|COMING|YARD|LOAD)/.test(seg) || /BEFORE (DELIVERY|DELIVERING|YOU COME)/.test(seg)) when = 'before-leave';
+    else if (/EN ?ROUTE|ON (THE|YOUR|HIS) WAY|HEADED|HEADING (OVER|THERE|OUT)|WHEN LEAV|LEAVING (THE )?YARD|\d+\s*MIN(UTE)?S? (OUT|AWAY|BEFORE|PRIOR)/.test(seg)) when = 'enroute';
+    else if (/ON ARRIVAL|UPON ARRIVAL|WHEN (YOU )?(ARRIVE|GET THERE|THERE|ON SITE|ONSITE)|AT (THE )?(SITE|JOB|HOUSE|GATE)/.test(seg)) when = 'arrival';
+    else if (/\bCALL (AHEAD|FIRST|1ST|PRIOR)\b|PLEASE CALL|MUST CALL|CALL [A-Z]+ (FIRST|AHEAD)|CALL BEFORE/.test(seg)) when = 'ahead';
+    else if (/\bCALL\b/.test(seg) && !/CALLED|CALL IN|WILL CALL|CALL FOR PICK/.test(seg)) when = 'other';
+    if (!when) return null;
+    return { when, note: seg.slice(0, 140), phone };
+  }
+
+  /** Is this call reminder due now? "Before leaving"/"en route"/"ahead" become due once the load is marked loaded. */
+  function callDue(order) {
+    const c = order.call;
+    if (!c || !c.when || c.done) return false;
+    if (['before-leave', 'enroute', 'ahead', 'other'].includes(c.when)) return order.status === 'loaded';
+    return false;
+  }
+
   // ------------------------------------------------------------------ translator
 
   const norm = (s) => String(s || '').toUpperCase().replace(/\s+/g, ' ').trim();
@@ -337,5 +374,5 @@
     return { assignments, unplaced };
   }
 
-  return { parseLength, skuLength, evaluateLine, orderRequirements, truckProblems, planDay, miles, hasGeo, twoOpt, tourMiles, norm };
+  return { CALL_KINDS, detectCall, callDue, parseLength, skuLength, evaluateLine, orderRequirements, truckProblems, planDay, miles, hasGeo, twoOpt, tourMiles, norm };
 });

@@ -57,6 +57,7 @@ function toast(msg, bad = false) {
 }
 
 const ICON = {
+  phone: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.9v3a2 2 0 0 1-2.2 2 19.8 19.8 0 0 1-8.6-3.1 19.5 19.5 0 0 1-6-6A19.8 19.8 0 0 1 2.1 4.2 2 2 0 0 1 4.1 2h3a2 2 0 0 1 2 1.7c.1.9.4 1.8.7 2.7a2 2 0 0 1-.5 2.1L8 9.8a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.9.3 1.8.6 2.7.7a2 2 0 0 1 1.7 2z"/></svg>',
   ticket: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5M9 13h6M9 17h4"/></svg>',
   print: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9V3h12v6M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 14h12v7H6z"/></svg>',
   sort: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></svg>',
@@ -161,6 +162,7 @@ function render() {
   renderPlanBar();
   renderBoard();
   renderMap();
+  renderCalls();
 }
 
 function renderStats() {
@@ -302,8 +304,10 @@ function renderTrip(trip, truck) {
     <div class="tripHead"><span class="t">Trip ${trip.n}</span>
       <span class="meta">${trip.orders.length}${maxStops ? ` / ${maxStops}` : ''} stops${rt && typeof rt === 'object' ? ` · ${rt.distanceMiles.toFixed(0)} mi · ${fmtMin(rt.durationMin)}` : ''}</span>
       ${trip.orders.length > 1 ? `<button class="btn icon ghost" data-act="opt" title="Re-order stops by shortest drive">${ICON.sort}</button>` : ''}
+      ${trip.orders.length ? (() => { const loaded = trip.orders.every((o) => o.status !== 'open'); return `<button class="btn small ${loaded ? 'isLoaded' : ''}" data-act="load" title="${loaded ? 'Loaded — tap to undo' : 'Mark this trip loaded (leaving the yard)'}">${loaded ? '✓ Loaded' : 'Mark loaded'}</button>`; })() : ''}
     </div></div>`);
   $('[data-act=opt]', el)?.addEventListener('click', () => optimizeTrip(truck.id, trip.n));
+  $('[data-act=load]', el)?.addEventListener('click', () => toggleLoaded(truck, trip));
   const legs = {};
   if (rt && typeof rt === 'object') {
     const off = yardGeo() ? 0 : -1;
@@ -360,6 +364,7 @@ function renderCard(o, truck, stopNo, legMin) {
       ${legMin != null ? `<span class="muted">${fmtMin(legMin)} drive</span>` : ''}
       ${(o.imageIds || []).length ? `<button class="tix" title="View ticket" data-tix>${ICON.ticket}</button>` : ''}
     </div>
+    ${o.call?.when ? `<div class="callTag${o.call.done ? ' done' : Shared.callDue(o) ? ' due' : ''}">${ICON.phone}${o.call.done ? 'Called' : esc(Shared.CALL_KINDS[o.call.when])}</div>` : ''}
     ${(o.assign === 'proposed' && truck && o.planReason) ? `<div class="why">${esc(o.planReason)}</div>` : ''}
     ${unplacedWhy ? `<div class="why unplaced">${esc(o.planReason)}</div>` : ''}
     ${iss.hard.length || iss.soft.length ? `<div class="warns">
@@ -566,6 +571,11 @@ function orderEditor(host, draft) {
       <div class="geoResults" data-georesults></div>
       <div class="geoStatus" data-geostatus></div>
       <label>Delivery instructions (from the ticket)<textarea rows="2" data-f="instructions"></textarea></label>
+      <div class="callRow">
+        <label>Call reminder<select data-call="when"><option value="">None</option>${Object.entries(Shared.CALL_KINDS).map(([k, v]) => `<option value="${k}">${v}</option>`).join('')}</select></label>
+        <label>Number to call<input data-call="phone" placeholder="order phone"></label>
+        <label class="grow">Note<input data-call="note" placeholder="e.g. ask for Mike, gate code"></label>
+      </div>
       <div class="needs" data-needs></div>
       <div class="ovr">
         <label>Boom<select data-ov="boom"><option value="">Auto</option><option value="yes">Needed</option><option value="no">Not needed</option></select></label>
@@ -687,6 +697,30 @@ function orderEditor(host, draft) {
   }
   $('[data-addline]', root).onclick = () => { draft.lines.push({ qty: null, uom: '', sku: '', desc: '' }); renderLines(); $$('[data-k=sku]', root).at(-1)?.focus(); };
 
+  // call reminder: picked up from the instructions automatically until it's set by hand
+  let callTouched = !!draft.call;
+  const callEls = Object.fromEntries($$('[data-call]', root).map((el) => [el.dataset.call, el]));
+  const showCall = () => {
+    callEls.when.value = draft.call?.when || '';
+    callEls.phone.value = draft.call?.phone || '';
+    callEls.note.value = draft.call?.note || '';
+    callEls.phone.disabled = callEls.note.disabled = !draft.call;
+  };
+  showCall();
+  for (const [k, el] of Object.entries(callEls)) {
+    el.addEventListener('input', () => {
+      callTouched = true;
+      if (k === 'when') draft.call = el.value ? { ...(draft.call || { note: '', phone: draft.phone || '', done: false }), when: el.value } : null;
+      else if (draft.call) draft.call[k] = el.value;
+      showCall();
+    });
+  }
+  $('[data-f=instructions]', root).addEventListener('input', () => {
+    if (callTouched) return;
+    draft.call = callFromText(draft.instructions, draft.phone);
+    showCall();
+  });
+
   renderNeeds();
   renderLines();
   const refresher = () => { if (!root.isConnected) { refreshers.delete(refresher); return; } renderLines(); renderNeeds(); };
@@ -718,7 +752,7 @@ $('#orderForm').addEventListener('submit', async (e) => {
   const body = {
     customer: d.customer, orderNo: d.orderNo, phone: d.phone, date: d.date || S.date, priority: d.priority,
     address: d.address, windowStart: d.windowStart, windowEnd: d.windowEnd, instructions: d.instructions, notes: d.notes,
-    lines: d.lines, overrides: d.overrides, status: $('#orderStatus').value, truckId,
+    lines: d.lines, overrides: d.overrides, status: $('#orderStatus').value, truckId, call: d.call || null,
   };
   if (hasGeo(d)) { body.lat = d.lat; body.lng = d.lng; }
   if (!prev || prev.truckId !== truckId) {
@@ -790,6 +824,11 @@ async function shrinkImage(file) {
   } catch { return fileToDataUrl(file); }
 }
 
+function callFromText(text, phone) {
+  const c = Shared.detectCall(text);
+  return c ? { when: c.when, note: c.note, phone: c.phone || phone || '', done: false } : null;
+}
+
 /** Turn what the reader found into a draft order for review. */
 function draftFromParse(r, label, source) {
   const p = r.parsed || {};
@@ -799,13 +838,13 @@ function draftFromParse(r, label, source) {
   if (!p.date) check.push(`no delivery date read — set to ${niceDate(S.date)}`);
   const notes = [];
   if (p.shipName && p.shipName !== p.customer && !p.shipName.startsWith('#')) notes.push(`Ship to: ${p.shipName}`);
-  if ((p.lines || []).some((l) => l.dashed)) check.push('some quantities have a dash in front on the ticket');
   return {
     _key: Math.random().toString(36).slice(2), _err: r.error || '', _file: label, _raw: r.rawText || '', _check: [...new Set(check)],
     orderNo: p.orderNo, customer: p.customer, phone: p.phone, address: p.address, date,
     instructions: p.instructions, notes: notes.join(' · '),
     priority: /RUSH|ASAP|URGENT|TODAY|FIRST THING|1ST THING/i.test(p.instructions || '') ? 'rush' : 'normal',
     lines: p.lines || [], overrides: {}, imageIds: r.imageId ? [r.imageId] : [], source,
+    call: callFromText(p.instructions, p.phone),
   };
 }
 
@@ -872,7 +911,7 @@ $('#importCommit').onclick = async () => {
   const keep = S.drafts.filter((d) => !d._skip);
   const orders = keep.map((d) => {
     const o = {};
-    for (const k of ['orderNo', 'customer', 'phone', 'address', 'date', 'priority', 'instructions', 'notes', 'windowStart', 'windowEnd', 'lines', 'overrides', 'imageIds', 'source']) if (d[k] !== undefined) o[k] = d[k];
+    for (const k of ['orderNo', 'customer', 'phone', 'address', 'date', 'priority', 'instructions', 'notes', 'windowStart', 'windowEnd', 'lines', 'overrides', 'imageIds', 'source', 'call']) if (d[k] !== undefined) o[k] = d[k];
     if (hasGeo(d)) { o.lat = d.lat; o.lng = d.lng; }
     return o;
   });
@@ -1232,6 +1271,90 @@ function printRunSheet(truckId) {
   w.document.close();
 }
 
+// ================================================================ call reminders
+const callsPanel = $('#callsPanel');
+function setCallsOpen(open) {
+  document.body.classList.toggle('callsOpen', open);
+  try { localStorage.setItem('callsOpen', open ? '1' : ''); } catch {}
+}
+$('#callsBtn').onclick = () => setCallsOpen(!document.body.classList.contains('callsOpen'));
+$('#callsClose').onclick = () => setCallsOpen(false);
+try { if (localStorage.getItem('callsOpen') && window.innerWidth > 700) setCallsOpen(true); } catch {}
+
+function callItem(o, group) {
+  const t = o.truckId ? truckById(o.truckId) : null;
+  const col = t ? buildColumns().find((c) => c.truck?.id === t.id) : null;
+  const trip = col?.trips.find((tr) => tr.orders.some((x) => x.id === o.id));
+  const stop = trip ? trip.orders.findIndex((x) => x.id === o.id) + 1 : null;
+  const phone = o.call.phone || o.phone || '';
+  const el = h(`<div class="callItem ${group}">
+    <div class="ciTop"><b>${esc(o.customer || o.orderNo || 'Order')}</b>${o.orderNo ? `<span class="muted small">#${esc(o.orderNo)}</span>` : ''}</div>
+    <div class="ciWhen">${ICON.phone}${esc(Shared.CALL_KINDS[o.call.when])}${group === 'tomorrow' ? ` <span class="muted">· for ${esc(niceDate(o.date))}</span>` : ''}</div>
+    ${o.call.note && Shared.CALL_KINDS[o.call.when].toUpperCase().replace(/[^A-Z]/g, '') !== o.call.note.toUpperCase().replace(/[^A-Z]/g, '') ? `<div class="ciNote">${esc(o.call.note)}</div>` : ''}
+    <div class="ciMeta">${t ? `${badge(t)} trip ${trip?.n ?? '?'} · stop ${stop ?? '?'}${o.status === 'loaded' ? ' · <b>loaded</b>' : ''}` : '<span class="muted">Not on a truck yet</span>'}</div>
+    <div class="ciActs">
+      ${phone ? `<a class="btn small" href="tel:${esc(phone.replace(/[^\d+]/g, ''))}">${ICON.phone}${esc(phone)}</a>` : '<span class="muted small">No number on the order</span>'}
+      <label class="chk"><input type="checkbox" ${o.call.done ? 'checked' : ''}> Called${o.call.done && o.call.doneAt ? ` <span class="muted small">${new Date(o.call.doneAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}</span>` : ''}</label>
+    </div></div>`);
+  $('input[type=checkbox]', el).onchange = async (e) => {
+    const call = { ...o.call, done: e.target.checked, doneAt: e.target.checked ? new Date().toISOString() : null };
+    o.call = call;
+    render();
+    try { await api('orders/' + o.id, { method: 'PUT', body: { call } }); } catch (err) { toast(err.message, true); refresh(true); }
+  };
+  $('.ciTop b', el).onclick = () => openOrder(o.id);
+  return el;
+}
+
+function placeCalls() {
+  const top = $('#board').getBoundingClientRect().top;
+  document.documentElement.style.setProperty('--boardTop', `${Math.max(60, Math.round(top))}px`);
+}
+window.addEventListener('resize', placeCalls);
+
+function renderCalls() {
+  placeCalls();
+  const withCall = S.orders.filter((o) => o.call?.when && o.status !== 'delivered');
+  const now = withCall.filter((o) => Shared.callDue(o));
+  const order = (a, b) => (truckIndex(truckById(a.truckId) || {}) - truckIndex(truckById(b.truckId) || {})) || (a.trip || 1) - (b.trip || 1) || (a.seq ?? 0) - (b.seq ?? 0);
+  const later = withCall.filter((o) => !o.call.done && !Shared.callDue(o)).sort(order);
+  const tomorrow = (S.callsTomorrow || []).filter((o) => !o.call.done);
+  const done = S.orders.filter((o) => o.call?.done).sort((a, b) => String(b.call.doneAt).localeCompare(String(a.call.doneAt)));
+  const open = now.length + later.length + tomorrow.length;
+  const cnt = $('#callsCount');
+  cnt.textContent = now.length || open;
+  cnt.classList.toggle('hidden', !open);
+  cnt.classList.toggle('hot', now.length > 0);
+  $('#callsSub').textContent = open ? `${open} to make${now.length ? ` · ${now.length} now` : ''}` : 'nothing to call';
+  const box = $('#callsList');
+  box.innerHTML = '';
+  const section = (title, list, group, hint) => {
+    if (!list.length) return;
+    box.appendChild(h(`<div class="cpSection"><span>${title}</span>${hint ? `<small>${hint}</small>` : ''}</div>`));
+    list.forEach((o) => box.appendChild(callItem(o, group)));
+  };
+  section('Call now', now.sort(order), 'now', 'truck is loaded');
+  section('Today', later, 'later', 'due when the trip is marked loaded');
+  section('Day-before calls', tomorrow, 'tomorrow', '');
+  section('Called', done, 'done', '');
+  if (!box.children.length) box.appendChild(h('<p class="muted small cpEmpty">No call reminders for this day. They\'re picked up from ticket notes like "call before leaving yard" or "call when en route", or set one in an order.</p>'));
+}
+
+async function toggleLoaded(truck, trip) {
+  const loaded = trip.orders.every((o) => o.status !== 'open');
+  const next = loaded ? 'open' : 'loaded';
+  const moves = trip.orders.filter((o) => o.status !== 'delivered').map((o) => { o.status = next; return { id: o.id, status: next }; });
+  render();
+  try { await api('orders/move', { method: 'POST', body: { moves } }); } catch (e) { toast(e.message, true); return refresh(true); }
+  if (next === 'loaded') {
+    const due = trip.orders.filter((o) => Shared.callDue(o));
+    if (due.length) {
+      toast(`${truck.name} trip ${trip.n} loaded — ${due.length} call${due.length > 1 ? 's' : ''} to make`);
+      setCallsOpen(true);
+    } else toast(`${truck.name} trip ${trip.n} marked loaded`);
+  }
+}
+
 // ================================================================ data loading
 async function refresh(force = false) {
   try {
@@ -1239,7 +1362,7 @@ async function refresh(force = false) {
     const hash = JSON.stringify(data);
     if (!force && hash === S.lastHash) return;
     S.lastHash = hash;
-    Object.assign(S, { settings: data.settings, trucks: data.trucks, orders: data.orders, lingo: data.lingo });
+    Object.assign(S, { settings: data.settings, trucks: data.trucks, orders: data.orders, lingo: data.lingo, callsTomorrow: data.callsTomorrow || [] });
     render();
   } catch (e) { toast('Could not reach the server: ' + e.message, true); }
 }

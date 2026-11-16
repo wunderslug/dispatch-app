@@ -18,6 +18,15 @@ A self-hosted dispatch board for a building supply yard. Import the day's Epicor
 
 The **Routes** map sits in the corner and shows assigned loads. Click it, or click a truck's name, to expand it and see each truck's routes.
 
+## Call reminders
+
+Ticket notes like "call before leaving yard", "call when en route", "call ahead", "call on arrival" or "call the day before" are picked up on import, and so are variations like "call B4 you leave", "text Mike when headed over", or "call Joe 30 min before". You can also set one by hand in any order (for when a salesman tells you instead of writing it down), with the number to call and a note.
+
+- The **Calls** button opens a sidebar with every call for the day: customer, tap-to-call number, truck/trip/stop, and a **Called** checkbox that records the time.
+- Each trip has a **Mark loaded** button. When you mark a trip loaded, its "before leaving" and "en route" calls move to **Call now**, the Calls count turns red, and the sidebar opens.
+- "Call the day before" reminders for tomorrow's orders show on today's board.
+- Cards on the board show a phone tag: grey until due, red when due, green once called.
+
 ## Translator
 
 The translator turns Epicor SKUs and counter shorthand into what matters for a truck:
@@ -36,7 +45,7 @@ On any order you can override the needs (Boom / Moffett / Covered / longest item
 Free and local. Nothing leaves your server and nothing costs per ticket.
 
 - ImageMagick straightens and cleans each photo, and Tesseract OCR reads it. The reader knows the Chace/Epicor ticket layout: it uses where words sit on the page to separate Sold To from Ship To, and anchors item rows on the unit and SKU columns.
-- Each photo is read twice: as taken, and with shadows evened out. Each field comes from whichever read looks right. A third pass runs only when a photo is hard to read.
+- Each photo is read three ways: as taken, with shadows evened out, and with red ink removed (so the dispatcher's red pen marks and notes don't garble the print). Each field comes from whichever read looks right. A third pass runs only when a photo is hard to read.
 - The review screen shows the photo next to what was read. Item rows read with low confidence are highlighted, and a **Double-check** line lists what to verify (missing qty, a misread year, an address that didn't parse, a ticket date that's already past).
 - **SKUs you've confirmed fix future misreads.** Once `13S16` has been saved on an order, a later `13816` is matched to it automatically.
 - **Paste ticket text:** if a photo reads badly, copy the text with your phone (iPhone Live Text, or Google Lens → Text) and paste it into the Import screen. It goes through the same parser.

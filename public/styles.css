@@ -388,3 +388,45 @@ textarea { resize: vertical; }
 .pasteBox summary { cursor: pointer; font: 700 16px/1.2 var(--cond); }
 .pasteBox[open] { display: flex; flex-direction: column; gap: 8px; }
 .pasteBox textarea { font: 13px/1.4 var(--mono, ui-monospace, monospace); }
+
+/* ---------- call reminders ---------- */
+.count.hot { background: var(--warn); color: #fff; }
+.callsPanel { position: fixed; right: 16px; top: var(--boardTop, 130px); bottom: 252px; width: 340px; z-index: 60; display: none; flex-direction: column; background: var(--card); border: 2px solid var(--ink); border-radius: var(--r-card); box-shadow: var(--shadow); overflow: hidden; }
+body.callsOpen .callsPanel { display: flex; }
+body.callsOpen .board { margin-right: 372px; }
+.cpHead { display: flex; align-items: center; gap: 10px; padding: 10px 12px 10px 16px; border-bottom: 2px solid var(--concrete-2); }
+.cpHead b { font: 800 22px/1 var(--cond); letter-spacing: .02em; text-transform: uppercase; }
+.cpHead .muted { flex: 1; }
+.cpBody { flex: 1; overflow-y: auto; padding: 8px 12px 14px; display: flex; flex-direction: column; gap: 8px; }
+.cpSection { display: flex; align-items: baseline; gap: 8px; margin: 8px 2px 0; font: 800 15px/1.1 var(--cond); text-transform: uppercase; letter-spacing: .04em; color: var(--ink-soft); }
+.cpSection small { font: 500 12px/1.2 var(--font); text-transform: none; letter-spacing: 0; color: var(--ink-faint); }
+.cpEmpty { padding: 8px 4px; line-height: 1.45; }
+.callItem { border: 2px solid var(--line); border-radius: 12px; padding: 9px 11px; display: flex; flex-direction: column; gap: 4px; background: var(--card); }
+.callItem.now { border-color: var(--warn); box-shadow: inset 5px 0 0 var(--warn); }
+.callItem.done { opacity: .6; }
+.callItem.tomorrow { border-style: dashed; }
+.ciTop { display: flex; align-items: baseline; gap: 8px; }
+.ciTop b { font: 700 17px/1.2 var(--cond); cursor: pointer; flex: 1; }
+.ciWhen { display: flex; align-items: center; gap: 6px; font-weight: 700; font-size: 14px; }
+.ciWhen svg, .callTag svg, .ciActs svg { width: 15px; height: 15px; flex: none; }
+.ciNote { font-size: 13px; color: var(--ink-soft); }
+.ciMeta { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--ink-soft); flex-wrap: wrap; }
+.ciActs { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.ciActs .chk { display: inline-flex; align-items: center; gap: 6px; font-weight: 700; cursor: pointer; }
+.ciActs .chk input { width: 20px; height: 20px; accent-color: var(--ink); }
+.callTag { display: inline-flex; align-items: center; gap: 6px; margin-top: 6px; padding: 3px 9px; border-radius: 999px; background: var(--tint); border: 1.5px solid var(--line); font: 700 13px/1.2 var(--font); color: var(--ink); align-self: flex-start; width: fit-content; }
+.callTag.due { background: var(--warn); border-color: var(--warn); color: #fff; }
+.callTag.done { color: var(--st-ok); border-color: var(--st-ok); }
+.callRow { display: grid; grid-template-columns: 220px 170px 1fr; gap: 10px; align-items: end; }
+.btn.isLoaded { background: var(--st-transit); border-color: var(--st-transit); color: #fff; }
+
+@media (max-width: 900px) {
+  body.callsOpen .board { margin-right: 0; }
+  .callsPanel { left: 16px; right: 16px; width: auto; bottom: 180px; }
+  .callRow { grid-template-columns: 1fr 1fr; }
+  .callRow .grow { grid-column: 1 / -1; }
+}
+@media (max-width: 700px) {
+  .callsPanel { left: 0; right: 0; top: 0; bottom: calc(var(--barH) + env(safe-area-inset-bottom)); border-radius: 0; border-width: 0; z-index: 850; padding-top: env(safe-area-inset-top); }
+}
+#callsCount:not(.hot) { background: var(--ink); }
