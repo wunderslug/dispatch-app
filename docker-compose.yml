@@ -7,9 +7,6 @@ services:
     ports:
       - "32799:8080"
     environment:
-      # Optional. Claude API key for reading ticket photos (can also be set in Settings).
-      # ANTHROPIC_API_KEY: "sk-ant-..."
-      # CLAUDE_MODEL: "claude-sonnet-5-5"
       # Optional. Nominatim asks for a contact email on geocoding requests.
       GEOCODE_EMAIL: ""
       # Limit address search to these countries (comma-separated ISO codes).

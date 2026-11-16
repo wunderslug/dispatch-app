@@ -75,13 +75,19 @@
       <header><h2>Import tickets</h2><button type="button" class="x" data-close>&times;</button></header>
       <div id="importStart">
         <label class="dropArea" id="dropArea">
-          <input type="file" id="ticketFiles" accept="image/*,application/pdf" multiple>
-          <b>Drop ticket photos or PDFs here</b>
-          <span>or click to choose files — on a phone this opens the camera</span>
+          <input type="file" id="ticketFiles" accept="image/*" multiple>
+          <b>Drop ticket photos here</b>
+          <span>or click to choose them — on a phone this opens the camera</span>
         </label>
+        <p class="muted small photoTips"><b>For a clean read:</b> one ticket per photo, flat on the desk (unfolded), phone held straight above it, whole ticket in frame, no shadow across it. Handwritten notes aren't read — add them in the notes.</p>
         <div class="orLine"><span>or</span></div>
+        <details class="pasteBox">
+          <summary>Paste ticket text</summary>
+          <p class="muted small">Copy the text off a ticket photo with your phone (iPhone: press and hold the text in Photos · Android: Google Lens → Text → Copy) and paste it here.</p>
+          <textarea id="pasteText" rows="8" placeholder="Paste the ticket text…"></textarea>
+          <div class="rowBtns"><button type="button" class="btn primary" id="pasteGo">Read this text</button></div>
+        </details>
         <label class="btn fileBtn">Import a CSV / spreadsheet export<input type="file" id="csvFile" accept=".csv,text/csv,.txt"></label>
-        <p class="muted small" id="readerNote"></p>
       </div>
       <div id="csvMap" class="hidden"></div>
       <div id="importProgress" class="importProgress hidden"></div>
@@ -181,19 +187,6 @@
       <div class="geoResults" id="yardResults"></div>
       <div class="geoStatus" id="yardStatus"></div>
       <input type="hidden" name="yardLat"><input type="hidden" name="yardLng">
-      <hr>
-      <h3>Ticket reader</h3>
-      <div class="grid2">
-        <label>Read photos with
-          <select name="ticketReader">
-            <option value="auto">Automatic (Claude if a key is set, else local)</option>
-            <option value="claude">Claude API — most accurate</option>
-            <option value="tesseract">Local OCR — free, stays on this server</option>
-          </select>
-        </label>
-        <label>Claude API key<input name="claudeApiKey" type="password" autocomplete="off" placeholder="sk-ant-…"></label>
-      </div>
-      <div class="muted small" id="keyNote"></div>
       <hr>
       <h3>Day tools</h3>
       <div class="rowBtns"><button type="button" class="btn" id="rollOver">Move this day's undelivered orders to the next day</button></div>

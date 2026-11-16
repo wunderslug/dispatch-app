@@ -656,8 +656,8 @@ function orderEditor(host, draft) {
     tb.innerHTML = '';
     draft.lines.forEach((line, i) => {
       const ev = Shared.evaluateLine(line, S.lingo);
-      const parsed = Shared.parseLength(`${line.sku} ${line.desc}`);
-      const tr = h(`<tr class="${ev.ignore ? 'ignored' : !ev.known ? 'unknown' : ''}">
+      const parsed = (Shared.parseLength(line.desc) ?? Shared.skuLength(line.sku));
+      const tr = h(`<tr class="${ev.ignore ? 'ignored' : !ev.known ? 'unknown' : ''}${line.unsure ? ' unsure' : ''}" title="${line.unsure ? 'Read with low confidence — compare with the photo' : ''}${line.skuCorrected ? ` · SKU read as ${esc(line.skuCorrected)}, matched to a known SKU` : ''}">
         <td><input class="q" data-k="qty" type="number" step="any"></td>
         <td><input class="u" data-k="uom"></td>
         <td><input class="s" data-k="sku"></td>
@@ -673,6 +673,7 @@ function orderEditor(host, draft) {
         if (inp.type === 'checkbox') inp.checked = !!line[k]; else inp.value = line[k] ?? '';
         inp.addEventListener(inp.type === 'checkbox' ? 'change' : 'input', () => {
           line[k] = inp.type === 'checkbox' ? inp.checked : (inp.type === 'number' ? (inp.value === '' ? null : Number(inp.value)) : inp.value);
+          if (line.unsure) { line.unsure = false; tr.classList.remove('unsure'); }
           renderNeeds();
           if (inp.type === 'checkbox') renderLines();
         });
@@ -754,10 +755,6 @@ const importDlg = $('#importDialog');
 
 function openImport() {
   if (!S.drafts.length) resetImport();
-  const s = S.settings;
-  $('#readerNote').textContent = s.ticketReader === 'tesseract' || (s.ticketReader === 'auto' && !s.hasApiKey)
-    ? 'Tickets are read with local OCR on your server. Check each one before adding it — or set a Claude API key in Settings for better accuracy.'
-    : 'Tickets are read with Claude. Check each one before adding it to the board.';
   importDlg.showModal();
 }
 
@@ -781,20 +778,52 @@ function fileToDataUrl(file) {
   return new Promise((res, rej) => { const r = new FileReader(); r.onload = () => res(r.result); r.onerror = rej; r.readAsDataURL(file); });
 }
 async function shrinkImage(file) {
-  // Phone photos are huge; 2200px on the long side is plenty to read a printed ticket.
+  // Send the photo as taken: re-compressing it costs OCR accuracy. Only very large files get scaled down.
+  if (file.size <= 15e6 && /^image\/(jpeg|png|webp)$/.test(file.type)) return fileToDataUrl(file);
   try {
     const bmp = await createImageBitmap(file);
-    const scale = Math.min(1, 2200 / Math.max(bmp.width, bmp.height));
+    const scale = Math.min(1, 3600 / Math.max(bmp.width, bmp.height));
     const c = document.createElement('canvas');
     c.width = Math.round(bmp.width * scale); c.height = Math.round(bmp.height * scale);
     c.getContext('2d').drawImage(bmp, 0, 0, c.width, c.height);
-    return c.toDataURL('image/jpeg', 0.88);
+    return c.toDataURL('image/jpeg', 0.97);
   } catch { return fileToDataUrl(file); }
 }
 
+/** Turn what the reader found into a draft order for review. */
+function draftFromParse(r, label, source) {
+  const p = r.parsed || {};
+  const check = [...(p.check || [])];
+  let date = p.date || S.date;
+  if (p.date && p.date < todayStr()) { check.push(`ticket date ${niceDate(p.date)} has passed — moved to ${niceDate(S.date)}`); date = S.date; }
+  if (!p.date) check.push(`no delivery date read — set to ${niceDate(S.date)}`);
+  const notes = [];
+  if (p.shipName && p.shipName !== p.customer && !p.shipName.startsWith('#')) notes.push(`Ship to: ${p.shipName}`);
+  if ((p.lines || []).some((l) => l.dashed)) check.push('some quantities have a dash in front on the ticket');
+  return {
+    _key: Math.random().toString(36).slice(2), _err: r.error || '', _file: label, _raw: r.rawText || '', _check: [...new Set(check)],
+    orderNo: p.orderNo, customer: p.customer, phone: p.phone, address: p.address, date,
+    instructions: p.instructions, notes: notes.join(' · '),
+    priority: /RUSH|ASAP|URGENT|TODAY|FIRST THING|1ST THING/i.test(p.instructions || '') ? 'rush' : 'normal',
+    lines: p.lines || [], overrides: {}, imageIds: r.imageId ? [r.imageId] : [], source,
+  };
+}
+
+$('#pasteGo').onclick = async () => {
+  const text = $('#pasteText').value.trim();
+  if (text.length < 20) return toast('Paste the text from a ticket first', true);
+  try {
+    const r = await api('parse-text', { method: 'POST', body: { text } });
+    S.drafts.push(draftFromParse({ ...r, rawText: text }, `Pasted ticket ${r.parsed?.orderNo ? '#' + r.parsed.orderNo : ''}`.trim(), 'manual'));
+    $('#pasteText').value = '';
+    $('#importStart').classList.add('hidden');
+    renderDrafts();
+  } catch (e) { toast(e.message, true); }
+};
+
 async function readTickets(files) {
-  files = files.filter((f) => /^image\/|application\/pdf/.test(f.type));
-  if (!files.length) return toast('Choose photos (JPG/PNG) or PDFs', true);
+  files = files.filter((f) => /^image\//.test(f.type));
+  if (!files.length) return toast('Choose ticket photos (JPG/PNG)', true);
   $('#importStart').classList.add('hidden');
   const prog = $('#importProgress');
   prog.classList.remove('hidden');
@@ -803,13 +832,7 @@ async function readTickets(files) {
     try {
       const data = files[i].type === 'application/pdf' ? await fileToDataUrl(files[i]) : await shrinkImage(files[i]);
       const r = await api('read-ticket', { method: 'POST', body: { data } });
-      const p = r.parsed || {};
-      S.drafts.push({
-        _key: Math.random().toString(36).slice(2), _err: r.error || '', _file: files[i].name, _raw: r.rawText || '',
-        orderNo: p.orderNo, customer: p.customer, phone: p.phone, address: p.address, date: p.date || S.date,
-        instructions: p.instructions, priority: /RUSH|ASAP|URGENT|FIRST THING|1ST/i.test(p.instructions || '') ? 'rush' : 'normal',
-        lines: p.lines || [], overrides: {}, imageIds: [r.imageId], source: 'photo',
-      });
+      S.drafts.push(draftFromParse(r, files[i].name, 'photo'));
     } catch (e) {
       S.drafts.push({ _key: Math.random().toString(36).slice(2), _err: e.message, _file: files[i].name, date: S.date, lines: [], overrides: {}, source: 'photo' });
     }
@@ -827,6 +850,7 @@ function renderDrafts() {
         ${d._raw ? '<button type="button" class="btn small ghost" data-raw>Show raw text</button>' : ''}
         <label class="chk"><input type="checkbox" data-skip ${d._skip ? 'checked' : ''}> Skip</label></div>
       ${d._err ? `<div class="draftErr">${esc(d._err)} — fill it in by hand from the photo.</div>` : ''}
+      ${d._check?.length ? `<div class="draftCheck"><b>Double-check:</b> ${d._check.map(esc).join(' · ')}</div>` : ''}
       <pre class="small muted hidden" data-rawtext style="white-space:pre-wrap;max-height:200px;overflow:auto">${esc(d._raw)}</pre>
       <div data-ed></div></div>`);
     $('[data-skip]', el).onchange = (e) => { d._skip = e.target.checked; el.classList.toggle('skip', d._skip); summary(); };
@@ -950,7 +974,7 @@ function openTeach({ line, rule, scope }) {
   $('#teachTitle').textContent = rule ? 'Edit translation' : scope === 'ticket' ? 'Ticket phrase rule' : 'Teach the translator';
   $('#teachLine').innerHTML = line ? `<span class="sku">${esc(line.sku || '—')}</span>${esc(line.desc || '')}` : 'Applies to every ticket that matches.';
   $('#teachLine').classList.toggle('hidden', !line && !!rule);
-  const parsed = line ? Shared.parseLength(`${line.sku} ${line.desc}`) : null;
+  const parsed = line ? (Shared.parseLength(line.desc) ?? Shared.skuLength(line.sku)) : null;
   $('#teachParsed').textContent = parsed != null ? `Description reads as ${parsed}'. Leave blank to keep that.` : '';
   $('#teachDelete').classList.toggle('hidden', !rule);
   updateTeachHits();
@@ -1111,10 +1135,6 @@ function openSettings() {
   f.yardAddress.value = s.yard?.address || '';
   f.yardLat.value = s.yard?.lat ?? '';
   f.yardLng.value = s.yard?.lng ?? '';
-  f.ticketReader.value = s.ticketReader || 'auto';
-  f.claudeApiKey.value = s.hasApiKey && !s.apiKeyFromEnv ? '********' : '';
-  f.claudeApiKey.disabled = !!s.apiKeyFromEnv;
-  $('#keyNote').textContent = s.apiKeyFromEnv ? 'Key is set by the ANTHROPIC_API_KEY environment variable.' : s.hasApiKey ? 'A key is saved. Clear the field and save to remove it.' : 'Get a key at console.anthropic.com. Reading a ticket costs a few cents.';
   $('#yardResults').innerHTML = '';
   setYardStatus(hasGeo(s.yard) ? 'ok' : '', hasGeo(s.yard) ? 'Yard is on the map' : 'Set the yard so routes start and end there');
   settingsDlg.showModal();
@@ -1150,8 +1170,7 @@ settingsForm.addEventListener('submit', async (e) => {
   e.preventDefault();
   const f = settingsForm.elements;
   if (f.yardAddress.value.trim() && !f.yardLat.value) await findYard(true);
-  const body = { companyName: f.companyName.value, yard: { address: f.yardAddress.value, lat: f.yardLat.value, lng: f.yardLng.value }, ticketReader: f.ticketReader.value };
-  if (!f.claudeApiKey.disabled) body.claudeApiKey = f.claudeApiKey.value;
+  const body = { companyName: f.companyName.value, yard: { address: f.yardAddress.value, lat: f.yardLat.value, lng: f.yardLng.value } };
   try {
     S.settings = await api('settings', { method: 'PUT', body });
     settingsDlg.close();

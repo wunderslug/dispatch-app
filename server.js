@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const Shared = require('./public/shared.js');
-const { readTicket } = require('./ticket-reader.js');
+const { readTicket, parseText } = require('./ticket-reader.js');
 
 const PORT = Number(process.env.PORT || 8080);
 const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
@@ -17,12 +17,11 @@ const NOMINATIM_URL = (process.env.NOMINATIM_URL || 'https://nominatim.openstree
 const OSRM_URL = (process.env.OSRM_URL || 'https://router.project-osrm.org').replace(/\/$/, '');
 const GEOCODE_EMAIL = process.env.GEOCODE_EMAIL || '';
 const TILE_URL = process.env.TILE_URL || 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png';
-const ENV_API_KEY = process.env.ANTHROPIC_API_KEY || '';
 
 // ------------------------------------------------------------------ storage
 
 const DEFAULT_DB = {
-  settings: { companyName: 'Building Supply', yard: { address: '', lat: null, lng: null }, ticketReader: 'auto', claudeApiKey: '' },
+  settings: { companyName: 'Building Supply', yard: { address: '', lat: null, lng: null } },
   trucks: [],
   orders: [],
   lingo: [],
@@ -42,6 +41,31 @@ function loadDb() {
     flushDb();
   }
 }
+/** SKUs the app has seen confirmed: translator rules plus every saved order line. Used to fix OCR misreads. */
+function knownSkus() {
+  const set = new Set();
+  for (const r of db.lingo) if (r.match === 'sku' && r.pattern) set.add(r.pattern.toUpperCase());
+  for (const o of db.orders) for (const l of o.lines || []) if (l.sku && l.sku.length >= 2) set.add(l.sku.toUpperCase());
+  return set;
+}
+
+// Starter translator rules from Chace tickets, added once (delete or edit them like any other rule).
+const SEED_RULES = [
+  { key: 'chace-fs', match: 'sku', scope: 'line', pattern: 'FS', meaning: 'Fuel surcharge', ignore: true },
+  { key: 'chace-inslab', match: 'prefix', scope: 'line', pattern: 'INSLAB', meaning: 'Install labor', ignore: true },
+];
+function seedRules() {
+  db.seeds ||= [];
+  for (const r of SEED_RULES) {
+    if (db.seeds.includes(r.key)) continue;
+    db.seeds.push(r.key);
+    if (db.lingo.some((x) => x.pattern === r.pattern && x.match === r.match)) continue;
+    const { key, ...rule } = r;
+    db.lingo.push({ boom: false, moffett: false, covered: false, lengthFt: null, ...rule, id: id(), createdAt: new Date().toISOString() });
+  }
+  saveDb();
+}
+
 let saveTimer = null;
 function writeNow() {
   const tmp = DB_FILE + '.tmp';
@@ -125,8 +149,8 @@ function cleanRule(input, r = {}) {
 }
 
 const publicSettings = () => {
-  const { claudeApiKey, ...rest } = db.settings;
-  return { ...rest, hasApiKey: !!(claudeApiKey || ENV_API_KEY), apiKeyFromEnv: !!ENV_API_KEY };
+  const { claudeApiKey, ticketReader, ...rest } = db.settings;
+  return rest;
 };
 
 // ------------------------------------------------------------------ http helpers
@@ -256,8 +280,6 @@ async function api(req, res, url) {
     const b = await readBody(req);
     if ('companyName' in b) db.settings.companyName = str(b.companyName) || 'Building Supply';
     if (b.yard) db.settings.yard = { address: str(b.yard.address), lat: num(b.yard.lat), lng: num(b.yard.lng) };
-    if ('ticketReader' in b) db.settings.ticketReader = ['auto', 'claude', 'tesseract'].includes(b.ticketReader) ? b.ticketReader : 'auto';
-    if ('claudeApiKey' in b && b.claudeApiKey !== '********') db.settings.claudeApiKey = str(b.claudeApiKey);
     saveDb();
     return send(res, 200, publicSettings());
   }
@@ -342,18 +364,26 @@ async function api(req, res, url) {
   // ---- read a ticket photo / PDF
   if (resource === 'read-ticket' && method === 'POST') {
     const b = await readBody(req, 30e6);
-    const m = /^data:(image\/(?:jpeg|png|webp|gif)|application\/pdf);base64,(.+)$/.exec(b.data || '');
-    if (!m) return send(res, 400, { error: 'Send a JPEG, PNG or PDF' });
+    const m = /^data:(image\/(?:jpeg|png|webp|gif));base64,(.+)$/.exec(b.data || '');
+    if (!m) return send(res, 400, { error: 'Send a JPEG or PNG photo of the ticket' });
     const buf = Buffer.from(m[2], 'base64');
     const imageId = id();
-    const ext = m[1] === 'application/pdf' ? 'pdf' : m[1].split('/')[1].replace('jpeg', 'jpg');
+    const ext = m[1].split('/')[1].replace('jpeg', 'jpg');
     fs.writeFileSync(path.join(IMG_DIR, `${imageId}.${ext}`), buf);
     try {
-      const out = await readTicket(buf, m[1], { engine: db.settings.ticketReader, apiKey: db.settings.claudeApiKey || ENV_API_KEY });
+      const out = await readTicket(buf, m[1], { knownSkus: knownSkus() });
       return send(res, 200, { imageId, ...out });
     } catch (e) {
       return send(res, 200, { imageId, error: e.message, parsed: { orderNo: '', customer: '', phone: '', address: '', date: '', instructions: '', lines: [] }, rawText: '' });
     }
+  }
+
+  // ---- text copied off a ticket (phone text recognition), run through the same parser
+  if (resource === 'parse-text' && method === 'POST') {
+    const b = await readBody(req, 2e6);
+    const text = str(b.text);
+    if (text.length < 20) return send(res, 400, { error: 'Paste the text from a ticket first' });
+    return send(res, 200, { parsed: parseText(text, new Set(knownSkus())) });
   }
 
   if (resource === 'tickets' && method === 'GET' && /^[a-f0-9]{10}$/.test(rid || '')) {
@@ -420,15 +450,15 @@ async function api(req, res, url) {
   }
 
   if (resource === 'export' && method === 'GET') {
-    const { claudeApiKey, ...settings } = db.settings;
+    const { claudeApiKey, ticketReader, ...settings } = db.settings;
     return send(res, 200, { ...db, settings }, { 'Content-Disposition': `attachment; filename="dispatch-backup-${new Date().toISOString().slice(0, 10)}.json"` });
   }
 
   if (resource === 'import' && method === 'POST') {
     const b = await readBody(req, 50e6);
     if (!Array.isArray(b.trucks) || !Array.isArray(b.orders)) return send(res, 400, { error: 'Not a dispatch backup file' });
-    const key = db.settings.claudeApiKey;
-    db = { settings: { ...DEFAULT_DB.settings, ...(b.settings || {}), claudeApiKey: key }, trucks: b.trucks, orders: b.orders, lingo: b.lingo || [] };
+    db = { settings: { ...DEFAULT_DB.settings, ...(b.settings || {}) }, trucks: b.trucks, orders: b.orders, lingo: b.lingo || [], seeds: b.seeds || [] };
+    seedRules();
     flushDb();
     return send(res, 200, { ok: true });
   }
@@ -439,6 +469,7 @@ async function api(req, res, url) {
 // ------------------------------------------------------------------ server
 
 loadDb();
+seedRules();
 kickLocate();
 
 const server = http.createServer(async (req, res) => {

@@ -4,7 +4,7 @@ A self-hosted dispatch board for a building supply yard. Import the day's Epicor
 
 ## The daily flow
 
-1. **Import tickets.** Drop in photos or PDFs of the printed Epicor tickets (on a phone, this opens the camera), or a CSV export if you can get one. The app reads the order #, customer, phone, delivery address, date, instructions, and every line item.
+1. **Import tickets.** Drop in photos of the printed Epicor tickets (on a phone, this opens the camera), paste text copied off a ticket with your phone, or import a CSV. The app reads the order #, customer, ship-to, phone, delivery address, date, instructions, and every line item, and tells you what to double-check.
 2. **Review.** Each ticket opens next to its photo, so you can fix anything misread. Unknown items are highlighted; teach them once (see Translator).
 3. **Auto-plan day.** The app proposes a truck, trip, and stop order for every unconfirmed order:
    - only trucks with the right equipment (boom, Moffett, covered) and enough deck for the longest item
@@ -33,13 +33,17 @@ On any order you can override the needs (Boom / Moffett / Covered / longest item
 
 ## Reading ticket photos
 
-Settings → **Ticket reader**:
+Free and local. Nothing leaves your server and nothing costs per ticket.
 
-- **Claude API** (recommended). Most reliable on phone photos. Needs an API key from console.anthropic.com, and each ticket costs a few cents. The photo is sent to Anthropic to be read.
-- **Local OCR** (Tesseract, built into the Docker image). Free, and nothing leaves your server. Works on clean, flat, well-lit photos, but expect to fix lines more often.
-- **Automatic** uses Claude when a key is set, and local OCR otherwise.
+- ImageMagick straightens and cleans each photo, and Tesseract OCR reads it. The reader knows the Chace/Epicor ticket layout: it uses where words sit on the page to separate Sold To from Ship To, and anchors item rows on the unit and SKU columns.
+- Each photo is read twice: as taken, and with shadows evened out. Each field comes from whichever read looks right. A third pass runs only when a photo is hard to read.
+- The review screen shows the photo next to what was read. Item rows read with low confidence are highlighted, and a **Double-check** line lists what to verify (missing qty, a misread year, an address that didn't parse, a ticket date that's already past).
+- **SKUs you've confirmed fix future misreads.** Once `13S16` has been saved on an order, a later `13816` is matched to it automatically.
+- **Paste ticket text:** if a photo reads badly, copy the text with your phone (iPhone Live Text, or Google Lens → Text) and paste it into the Import screen. It goes through the same parser.
 
-Ticket photos are kept with the order; click the ticket icon on a card to see it.
+For the best read: one ticket per photo, flat and unfolded, phone straight above it, the whole ticket in frame, no shadow across it. Handwritten notes aren't read; add them to the order's notes.
+
+Tested on six real Chace tickets: flat, straight-on photos read correctly apart from the occasional misread digit, which the review screen flags. Folded, angled, or overlapping photos read poorly.
 
 ## Run it
 
@@ -67,7 +71,7 @@ node server.js     # http://localhost:8080, data in ./data
 
 ## First-time setup
 
-1. **Settings** — company name, yard address, ticket reader (and API key).
+1. **Settings** — company name and yard address.
 2. **Trucks** — for each truck: badge code and color, type, driver, deck length, stops per trip, trips per day, and whether it has a boom, a Moffett, or a covered body. Uncheck **On board** for a truck that's down.
 3. Import a stack of tickets and **teach the translator** the items it doesn't know. It gets faster every day.
 
@@ -77,8 +81,6 @@ node server.js     # http://localhost:8080, data in ./data
 | --- | --- | --- |
 | `PORT` | `8080` | HTTP port inside the container (published as 32799) |
 | `DATA_DIR` | `/data` | Database (`db.json`) and ticket images |
-| `ANTHROPIC_API_KEY` | — | Claude key for reading tickets (or set it in Settings) |
-| `CLAUDE_MODEL` | `claude-sonnet-5-5` | Model used to read tickets |
 | `GEOCODE_EMAIL` | — | Contact email sent to Nominatim, per its usage policy |
 | `GEOCODE_COUNTRIES` | `us` | Limit address lookup to these countries |
 | `NOMINATIM_URL` / `OSRM_URL` / `TILE_URL` | public OpenStreetMap / OSRM / CARTO dark | Address lookup, driving routes, map tiles |
@@ -87,12 +89,12 @@ Addresses are located automatically in the background (one per second, per Nomin
 
 ## Backups
 
-Settings → **Download backup** saves trucks, orders, translator rules and settings (not the API key) as one JSON file. Ticket images live in `/data/tickets`.
+Settings → **Download backup** saves trucks, orders, translator rules and settings as one JSON file. Ticket images live in `/data/tickets`.
 
 ## How it's built
 
 - `server.js` — Node HTTP server, JSON-file storage, background geocoding, routing proxy, planning endpoint.
-- `ticket-reader.js` — Claude vision or local Tesseract, producing the same structured order.
+- `ticket-reader.js` — local ticket reader: ImageMagick + Tesseract, plus the Chace/Epicor layout parser (also used for pasted text).
 - `public/shared.js` — translator, length parsing, order requirements, and the planner (used by both server and browser).
 - `public/` — the board: plain HTML/CSS/JS styled to the Dispatch UI Kit, with Leaflet and Inter bundled. No build step.
 

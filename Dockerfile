@@ -1,7 +1,7 @@
 FROM node:22-alpine
 
-# Local OCR for reading ticket photos without sending them anywhere
-RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-eng
+# Free, local ticket reading: ImageMagick cleans up the photo, Tesseract reads it. Nothing leaves the server.
+RUN apk add --no-cache tesseract-ocr tesseract-ocr-data-eng imagemagick imagemagick-jpeg
 
 WORKDIR /app
 ENV NODE_ENV=production PORT=8080 DATA_DIR=/data

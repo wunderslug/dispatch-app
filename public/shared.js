@@ -17,20 +17,52 @@
   const FEET = /(?:^|[^\d\/])(\d{1,2})\s*(?:'|FT\b|FEET\b|FOOT\b)/;
   const SHEET = /(?:^|[^\d\/-])4\s*X\s*(8|9|10|12)(?![\d\/])/;
 
-  /** Best guess at the length (in feet) of a material from its SKU/description, or null. */
+  // Doors, however the salesman wrote it: 3/0X6/8, 3-0 X 6-8, 3068 (width ft/in, height ft/in)
+  const DOOR_SLASH = /\b(\d)([\/-])(0?\d|1[01])\s*X\s*(\d)([\/-])(0?\d|1[01])\b(?!')/;
+  const DOOR_CODE = /\b([1-6])([0-9]|1[01])([6-8])([0-9]|1[01])\b/;
+  const DOORISH = /DOOR|PREHUNG|PRE-HUNG|SLAB|INSWING|OUTSWING|\bLH\b|\bRH\b|\bPH\b|SODOOR/;
+
+  /** Best guess at the length (in feet) of a material from its description, or null. */
   function parseLength(text) {
     if (!text) return null;
     const t = String(text).toUpperCase().replace(/[″”]/g, '"').replace(/[′’]/g, "'");
-    let m = t.match(DIM3);
+    let m = t.match(DOOR_SLASH);
+    if (m && Number(m[4]) >= 6 && Number(m[4]) <= 8 && ((m[2] === '/' && m[5] === '/') || DOORISH.test(t))) return Math.ceil(Number(m[4]) + Number(m[6]) / 12);
+    m = t.match(DIM3);
     if (m) {
       const n = Number(m[3]);
-      if (n >= 4 && n <= 60) return n;
-      if (n > 60 && n <= 300) return Math.ceil(n / 12); // inches, e.g. 92-5/8 precut stud
+      const after = t.slice(m.index + m[0].length, m.index + m[0].length + 1);
+      if (after === '/') {
+        // 4X12X5/8: the last number is a thickness, so this is a sheet and the length is the 2nd dimension
+        const L = Number(m[2]);
+        if (L >= 4 && L <= 16) return L;
+      } else {
+        if (n >= 4 && n <= 60) return n;
+        if (n > 60 && n <= 300) return Math.ceil(n / 12); // inches, e.g. 92-5/8 precut stud
+      }
     }
     m = t.match(FEET);
     if (m) { const n = Number(m[1]); if (n >= 2 && n <= 60) return n; }
     m = t.match(SHEET);
     if (m) return Number(m[1]);
+    if (DOORISH.test(t)) {
+      m = t.match(DOOR_CODE);
+      if (m) return Math.ceil(Number(m[3]) + Number(m[4]) / 12);
+    }
+    return null;
+  }
+
+  /**
+   * Length from a Chace-style lumber/deck SKU when the description doesn't give one:
+   *   2416PT → 2x4 16'   268PT → 2x6 8'   21016KD → 2x10 16'   13S16 → 1x3 strapping 16'
+   *   5468PR / 54610PT / 54612PT → 5/4x6 deck 8'/10'/12'   54418ATB → 5/4x4 18'
+   */
+  function skuLength(sku) {
+    const s = String(sku || '').toUpperCase().trim();
+    let m = s.match(/^54([468]|10|12)(6|8|10|12|14|16|18|20|22|24)[A-Z]{0,4}$/);
+    if (m) return Number(m[2]);
+    m = s.match(/^([1-6])(2|3|4|6|8|10|12)S?(6|8|10|12|14|16|18|20|22|24)[A-Z]{0,4}$/);
+    if (m) return Number(m[3]);
     return null;
   }
 
@@ -65,14 +97,16 @@
   function evaluateLine(line, rules) {
     const matches = (rules || []).filter((r) => ruleMatchesLine(r, line)).sort((a, b) => ruleRank(b) - ruleRank(a));
     const rule = matches[0] || null;
-    const parsed = parseLength(`${line.sku || ''} ${line.desc || ''}`);
+    const fromDesc = parseLength(line.desc || '');
+    const fromSku = fromDesc == null ? skuLength(line.sku) : null;
+    const parsed = fromDesc ?? fromSku;
     const pick = (k) => matches.map((r) => r[k]).find((v) => v !== null && v !== undefined && v !== '');
     const lengthFt = num(line.lengthFt) ?? num(pick('lengthFt')) ?? parsed;
     return {
       rule,
       meaning: rule?.meaning || '',
       lengthFt,
-      lengthSource: num(line.lengthFt) != null ? 'manual' : num(pick('lengthFt')) != null ? 'translator' : parsed != null ? 'description' : null,
+      lengthSource: num(line.lengthFt) != null ? 'manual' : num(pick('lengthFt')) != null ? 'translator' : fromDesc != null ? 'description' : fromSku != null ? 'sku' : null,
       boom: matches.some((r) => r.boom),
       moffett: matches.some((r) => r.moffett),
       covered: matches.some((r) => r.covered),
@@ -303,5 +337,5 @@
     return { assignments, unplaced };
   }
 
-  return { parseLength, evaluateLine, orderRequirements, truckProblems, planDay, miles, hasGeo, twoOpt, tourMiles, norm };
+  return { parseLength, skuLength, evaluateLine, orderRequirements, truckProblems, planDay, miles, hasGeo, twoOpt, tourMiles, norm };
 });
